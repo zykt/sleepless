@@ -1,9 +1,11 @@
 module Main where
 
+import Data.Void
 import Control.Monad
-import Text.Parsec
-import Text.Parsec.Char
+import Text.Megaparsec
+import Text.Megaparsec.Char
 
+type Parser = Parsec Void String
 
 data Expr
   = Number Integer
@@ -20,18 +22,18 @@ main = do
   putStrLn result
   when (str /= "(exit)") main
 
-symbol :: Stream s m Char => ParsecT s u m Char
+symbol :: Parser Char
 symbol = oneOf "!$%&*+-./:<=>?@^_~"
 
-numberParser :: Stream s m Char => ParsecT s u m Expr
-numberParser = (Number . read) <$> many1 digit
+numberParser :: Parser Expr
+numberParser = (Number . read) <$> some digitChar
 
-identParser :: Stream s m Char => ParsecT s u m Expr
+identParser :: Parser Expr
 identParser = Ident <$> parser
-  where parser = (:) <$> (letter <|> symbol)
-                     <*> (many (letter <|> symbol <|> digit))
+  where parser = (:) <$> (letterChar <|> symbol)
+                     <*> (many (letterChar <|> symbol <|> digitChar))
 
-parensParser :: Stream s m Char => ParsecT s u m Expr
+parensParser :: Parser Expr
 parensParser = do
   char '('
   content <- exprParser
@@ -41,8 +43,8 @@ parensParser = do
 -- works:
 -- > parse exprParser "" "(+ 2 s2 35)"
 -- Right [Parens [Ident "+",Number 2,Ident "s2",Number 35]]
-exprParser :: Stream s m Char => ParsecT s u m [Expr]
-exprParser = many1 $ spaces >> (choiceTry parsers)
+exprParser :: Parser [Expr]
+exprParser = many $ space >> (choiceTry parsers)
   where
     choiceTry = choice . (map try)
     parsers =
