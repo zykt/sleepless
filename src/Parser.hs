@@ -1,4 +1,4 @@
-module Parser (Parser, parseTokens) where
+module Parser (Parser, BasicToken, parseTokens) where
 
 import Data.Void
 import Text.Megaparsec
