@@ -2,8 +2,9 @@ module Main where
 
 
 import Control.Monad
+import Data.Bifunctor as BF
+import Data.Void
 import Parser
-
 
 
 data Expr
@@ -14,18 +15,24 @@ data Expr
     deriving (Show)
 
 
-data SyntaxError = SyntaxError String
+data SyntaxError
+    = SyntaxError String
+    | TokenParseError (ParseError Char Void)
     deriving (Show)
+
 
 main :: IO ()
 main = do
     putStr "> "
     str <- getLine
-    let tokens = parseTokens str
-    let result = fmap createTree tokens
+    let tokens = BF.first adapter $ parseTokens str
+    let result = createTree =<< tokens
     print $ show tokens
     print $ show result
     when (str /= "(exit)") main
+    where
+        adapter :: ParseError Char Void -> SyntaxError
+        adapter e = TokenParseError e
 
 
 -- Build recursively expression tree
