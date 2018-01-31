@@ -45,6 +45,9 @@ main = do
         adapter :: ParseError Char Void -> Error
         adapter e = TokenParseError e
 
+--
+-- Evaluation
+--
 
 eval :: [Expr] -> Either Error [Expr]
 eval [] = Right []
@@ -74,35 +77,9 @@ specialSum (a:args) = case a of
         s (ExprAtom (AtomInteger n1)) (ExprAtom (AtomInteger n2)) = Right $ ExprAtom $ AtomInteger (n1 + n2)
         s e1 e2 = Left $ EvalError ("Unexpected argument to sum" ++ show e1 ++ " " ++ show e2)
 
-
-{-
--- Build recursively expression tree
--- separating regions defined by parenthesis into their own subnodes
-createExprTree :: [BasicToken] -> Either Error [Expr]
-createExprTree [] = Right []
-createExprTree (t:tokens) = case t of
-    TokenNumber n ->
-        (:) <$> pure (IntegerNumber n) <*> createExprTree tokens
-    TokenDouble d ->
-        (:) <$> pure (DoubleNumber d) <*> createExprTree tokens
-    TokenIdent  i ->
-        (:) <$> pure (Ident i) <*> createExprTree tokens
-    TokenLeftParen ->
-        (:) <$> (Parens <$> createParensOld tokens) <*> createExprTree tokens
-    TokenRightParen ->
-        Right []
-
-createParensOld :: [BasicToken] -> Either Error [Expr]
-createParensOld [] = Left $ SyntaxError "Right parenthesis exprected"
-createParensOld ts = createExprTree ts
--}
-
-
-createExprFromAtomToken :: AtomToken -> Expr
-createExprFromAtomToken = \case
-    AtomTokenInteger n -> ExprAtom $ AtomInteger n
-    AtomTokenDouble d -> ExprAtom $ AtomDouble d
-    AtomTokenIdent  i -> ExprAtom $ AtomIdent i
+--
+-- Recursive reading of tokens
+--
 
 recurse :: ([BasicToken], Expr)
         -> ([BasicToken] -> Either Error ([BasicToken], [Expr]))
@@ -137,34 +114,9 @@ createParens (t:rest) = case t of
     BasicTokenRightParen ->
         pure (rest, [])
 
-{-
 
-createTree :: ([BasicToken], [Expr]) -> Either Error ([BasicToken], [Expr])
-createTree ([], _) = pure ([], [])
-createTree (tokens@(t:rest), exprs) = case t of
-    TokenNumber n ->
-        tokenToExpr (rest, IntegerNumber n)
-    TokenDouble d ->
-        tokenToExpr (rest, DoubleNumber d)
-    TokenIdent  i ->
-        tokenToExpr (rest, Ident i)
-    TokenLeftParen ->
-        tokenToExpr <$> createParens (rest, [])
-    TokenRightParen ->
-        Left (SyntaxError "Umatched ')'; Unexpected right parenthesis")
-    where
-        -- returns without used tokens and new expression added
-        tokenToExpr :: ([BasicToken], Expr) -> ([BasicToken], [Expr]) -> ([BasicToken], [Expr])
-        tokenToExpr (ts, e) = bimap (\_ -> ts) (\es -> e:es) <$> (createTree (ts, e))
-        takeOne
-        --parensToExpr :: [Expr] -> ([BasicToken], [Expr]) -> ([BasicToken], [Expr])
-        --parensToExpr
-
-createParens ::  ([BasicToken], [Expr]) -> Either Error ([BasicToken], Expr)
-createParens ([], _) = Left $ SyntaxError "Unexpected eof"
-createParens (tokens@(t:rest), exprs) = case t of
-    TokenRightParen ->
-        Right (rest, Parens exprs)
-    _ ->
-        createTree (tokens, exprs)
--}
+createExprFromAtomToken :: AtomToken -> Expr
+createExprFromAtomToken = \case
+    AtomTokenInteger n -> ExprAtom $ AtomInteger n
+    AtomTokenDouble d -> ExprAtom $ AtomDouble d
+    AtomTokenIdent  i -> ExprAtom $ AtomIdent i
