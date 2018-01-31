@@ -1,4 +1,4 @@
-module Parser (Parser, BasicToken(..), ParseError(..), parseTokens) where
+module Parser (Parser, BasicToken(..), AtomToken(..), ParseError(..), parseTokens) where
 
 import Data.Void
 import Text.Megaparsec
@@ -7,12 +7,17 @@ import Text.Megaparsec.Char
 type Parser = Parsec Void String
 
 
+data AtomToken
+    = AtomTokenInteger Integer
+    | AtomTokenDouble Double
+    | AtomTokenIdent  String
+    deriving (Show)
+
+
 data BasicToken
-    = TokenNumber Integer
-    | TokenDouble Double
-    | TokenIdent  String
-    | TokenLeftParen
-    | TokenRightParen
+    = BasicTokenAtom AtomToken
+    | BasicTokenLeftParen
+    | BasicTokenRightParen
     deriving (Show)
 
 
@@ -28,25 +33,25 @@ symbol = oneOf "!$%&*+-./:<=>?@^_~"
 --
 
 numberParser :: Parser BasicToken
-numberParser = (TokenNumber . read) <$> some digitChar
+numberParser = (BasicTokenAtom . AtomTokenInteger . read) <$> some digitChar
 
 doubleParser :: Parser BasicToken
 doubleParser = do
         n1 <- some digitChar
         char '.'
         n2 <- some digitChar
-        return $ TokenDouble . read $ n1 ++ "." ++ n2
+        return $ BasicTokenAtom . AtomTokenDouble . read $ n1 ++ "." ++ n2
 
 identParser :: Parser BasicToken
-identParser = TokenIdent <$> parser
+identParser = BasicTokenAtom . AtomTokenIdent <$> parser
     where parser = (:) <$> (letterChar <|> symbol)
                        <*> many (letterChar <|> symbol <|> digitChar)
 
 rightParenParser :: Parser BasicToken
-rightParenParser = char ')' *> pure TokenRightParen
+rightParenParser = char ')' *> pure BasicTokenRightParen
 
 leftParenParser :: Parser BasicToken
-leftParenParser = char '(' *> pure TokenLeftParen
+leftParenParser = char '(' *> pure BasicTokenLeftParen
 
 -- terminator for lookAhead termination of elements
 terminatorParser :: Parser ()
