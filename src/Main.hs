@@ -44,7 +44,7 @@ main :: IO ()
 main = do
     putStr "> "
     str <- getLine
-    let tokens = BF.first adapter $ parseTokens str
+    let tokens = BF.first TokenParseError $ parseTokens str
     let exprs = createExprTree =<< tokens
     let result = eval =<< exprs
     print $ show tokens
@@ -52,9 +52,6 @@ main = do
     print "Result:"
     print $ show result
     when (str /= "(exit)") main
-    where
-        adapter :: ParseError Char Void -> Error
-        adapter e = TokenParseError e
 
 --
 -- Evaluation
