@@ -5,6 +5,8 @@ module Main where
 
 import Control.Monad
 import Data.Bifunctor as BF
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Void
 import Parser
 
@@ -22,11 +24,20 @@ data Expr
     deriving (Show)
 
 
+data Internal
+    = InternalAtom Atom
+    | InternalList [Internal]
+    | InternalProc
+
+
 data Error
     = SyntaxError String
     | TokenParseError (ParseError Char Void)
     | EvalError String
     deriving (Show)
+
+
+type Env = Map String Internal
 
 
 main :: IO ()
