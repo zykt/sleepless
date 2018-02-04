@@ -104,7 +104,7 @@ main = do
     print $ show internal
     print $ show internalEval
     case internalEval of
-        Right xs -> forM_ xs (print . simpleShowInternal)
+        Right xs -> forM_ xs (putStrLn . simpleShowInternal)
         Left err -> print . show $ err
     when (str /= "(exit)") main
 
