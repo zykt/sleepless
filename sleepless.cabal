@@ -17,6 +17,7 @@ executable sleepless
   hs-source-dirs:      src
   main-is:             Main.hs
   default-language:    Haskell2010
+  ghc-options:         -Wall -Wincomplete-uni-patterns -Wincomplete-record-updates
   build-depends:       base >= 4.7 && < 5
                      , megaparsec
                      , containers
