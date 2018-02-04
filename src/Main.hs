@@ -95,13 +95,15 @@ main = do
     putStr "> "
     str <- getLine
     let tokens = BF.first TokenParseError $ parseTokens str
-    let exprs = createExprTree =<< tokens
-    let result = eval defaultEnv =<< exprs
-    let internal = internalRepr =<< exprs
+    --let exprs = createExprTree =<< tokens
+    let exprs' = makeExprs =<< tokens
+    --let result = eval defaultEnv =<< exprs'
+    let internal = internalRepr =<< exprs'
     let internalEval = evalInternal defaultEnv =<< internal
     print $ show tokens
-    print $ show exprs
-    print $ show result
+    --print $ show (expr [BasicTokenLeftParen, BasicTokenAtom $ AtomTokenIdent "add"])
+    --print $ show (makeExprs [BasicTokenLeftParen, BasicTokenAtom $ AtomTokenIdent "add"])
+    print $ show exprs'
     print $ show internal
     print $ show internalEval
     case internalEval of
@@ -147,13 +149,11 @@ internalRepr [] = pure []
 internalRepr (e:exprs) = case e of
     ExprAtom a ->
         (:) <$> pure (InternalAtom a) <*> internalRepr exprs
+    ExprParens [] ->
+        Left $ EvalError "AQOEWJTGIPOWAENTGOIPNPIO"
     ExprParens (name:args) ->
         (:) <$> procCallFromParens name args <*> internalRepr exprs
     where
-        ident :: Expr -> Either Error Ident
-        ident (ExprAtom (AtomIdent i)) = Right i
-        ident _ = Left $ EvalError "Expected identificator"
-
         procCallFromParens :: Expr -> [Expr] -> Either Error Internal
         procCallFromParens nameExpr args =
             let name = case nameExpr of
@@ -169,6 +169,7 @@ evalInternal env (x:xs) = case x of
         (:) <$> pure a <*> evalInternal env xs
     InternalCallProc name args ->
         (:) <$> join (callProc env name <$> (evalInternal env args)) <*> evalInternal env xs
+    _ -> Left $ EvalError "Not implemented"
 
 
 lookupEnv :: Env -> Ident -> Either Error Internal
@@ -184,6 +185,7 @@ callProc env name args = helper =<< (lookupEnv env name)
         helper = \case
             InternalBuiltInProc procArgs f ->
                 applyFunc f =<< format args procArgs
+            _ -> Left $ EvalError "Not implemented"
         format (x:xs) (Arg rest) = (:) <$> pure x <*> format xs rest
         format [] NoArg = pure []
         format xs MultiArg = pure xs
@@ -198,7 +200,7 @@ applyFunc _ _ = Left $ EvalError "Built-in Function application error"
 --
 -- Recursive reading of tokens
 --
-
+{-
 recurse :: ([BasicToken], Expr)
         -> ([BasicToken] -> Either Error ([BasicToken], [Expr]))
         -> Either Error ([BasicToken], [Expr])
@@ -231,10 +233,42 @@ createParens (t:rest) = case t of
         in join $ recurse <$> parens <*> pure createParens
     BasicTokenRightParen ->
         pure (rest, [])
-
-
+-}
 createExprFromAtomToken :: AtomToken -> Expr
 createExprFromAtomToken = \case
     AtomTokenInteger n -> ExprAtom $ AtomInteger n
     AtomTokenDouble d -> ExprAtom $ AtomDouble d
     AtomTokenIdent  i -> ExprAtom $ AtomIdent i
+
+
+makeExprs :: [BasicToken] -> Either Error [Expr]
+makeExprs tokens = snd <$> exprList tokens
+
+
+exprList :: [BasicToken] -> Either Error ([BasicToken], [Expr])
+exprList [] = pure ([], [])
+exprList (BasicTokenRightParen:_) = Left $ SyntaxError "Umatched ')'; Unexpected right parenthesis"
+exprList tokens = do
+    (tokens', expr_) <- expr tokens
+    (tokens'', exprList_) <- exprList tokens'
+    return (tokens'', expr_:exprList_)
+
+
+expr :: [BasicToken] -> Either Error ([BasicToken], Expr)
+expr [] = Left $ SyntaxError "(Should not happen) No tokens found"
+expr (t:rest) = case t of
+    BasicTokenAtom a ->
+        pure (rest, createExprFromAtomToken a)
+    BasicTokenLeftParen ->
+        let exprList' [] = Left $ SyntaxError "Unexpected eof"
+            exprList' (BasicTokenRightParen:rest_) = pure (rest_, [])
+            exprList' tokens = do
+                (tokens', expr_) <- expr tokens
+                (tokens'', exprList_) <- exprList' tokens'
+                return (tokens'', expr_:exprList_)
+        in BF.second ExprParens <$> exprList' rest
+    BasicTokenRightParen ->
+        Left $ SyntaxError "Umatched ')'; Unexpected right parenthesis"
+    BasicTokenQuote ->
+        let quote expr_ = ExprParens [ExprAtom $ AtomIdent "quote", expr_]
+        in BF.second quote <$> expr rest

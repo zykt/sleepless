@@ -18,6 +18,7 @@ data BasicToken
     = BasicTokenAtom AtomToken
     | BasicTokenLeftParen
     | BasicTokenRightParen
+    | BasicTokenQuote
     deriving (Show)
 
 
@@ -53,6 +54,9 @@ rightParenParser = char ')' *> pure BasicTokenRightParen
 leftParenParser :: Parser BasicToken
 leftParenParser = char '(' *> pure BasicTokenLeftParen
 
+quoteParser :: Parser BasicToken
+quoteParser = char '\'' *> pure BasicTokenQuote
+
 -- terminator for lookAhead termination of elements
 terminatorParser :: Parser ()
 terminatorParser = (oneOf "() " *> pure ()) <|> (eof *> pure ())
@@ -62,7 +66,7 @@ terminatorParser = (oneOf "() " *> pure ()) <|> (eof *> pure ())
 -- Right [Parens [Ident "+",Number 2,Ident "s2",Number 35]]
 tokensParser :: Parser [BasicToken]
 tokensParser = space
-             *> some ((parensParser <|> elementParser) <* space)
+             *> some ((parensParser <|> elementParser <|> quoteParser) <* space)
              <* eof
     where
         parensParser = leftParenParser <|> rightParenParser
