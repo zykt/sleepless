@@ -47,7 +47,6 @@ simpleShowInternal i = case i of
         simpleShowAtom (AtomIdent x) = x
 
 
-
 -- Recursive structure for multiple arguments of procedures
 -- always ends in either Multiarg or NoArg
 data Args
@@ -91,22 +90,32 @@ builtInSum (InternalAtom (AtomInteger i1)) (InternalAtom (AtomInteger i2)) =
 builtInSum _ _ = Left $ EvalError "Unexpected argument to sum"
 
 
+data Config = Config { debug :: Bool }
+
+
 main :: IO ()
 main = do
+    let config = Config True
+    repl config
+
+
+repl :: Config -> IO ()
+repl config = do
     putStr "> "
     str <- getLine
     let tokens = BF.first TokenParseError $ parseTokens str
     let exprs = makeExprs =<< tokens
     let internal = internalRepr =<< exprs
     let internalEval = evalInternal defaultEnv =<< internal
-    print $ show tokens
-    print $ show exprs
-    print $ show internal
-    print $ show internalEval
+    when (debug config) $ do
+        print $ show tokens
+        print $ show exprs
+        print $ show internal
+        print $ show internalEval
     case internalEval of
         Right xs -> forM_ xs (putStrLn . simpleShowInternal)
         Left err -> print . show $ err
-    when (str /= "(exit)") main
+    when (str /= "(exit)") $ repl config
 
 --
 -- Evaluation
