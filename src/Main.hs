@@ -121,35 +121,6 @@ repl config = do
 -- Evaluation
 --
 
-eval :: Env -> [Expr] -> Either Error [Expr]
-eval _ [] = Right []
-eval e (expr:rest) = case expr of
-    a@(ExprAtom _) ->
-        (:) <$> pure a <*> eval e rest
-    ExprParens content ->
-        (:) <$> evalProcedure content <*> eval e rest
-
-
-evalProcedure :: [Expr] -> Either Error Expr
-evalProcedure [] = Left $ EvalError "Can not evaluate empty proc"
-evalProcedure (f:args) = case f of
-    ExprAtom (AtomIdent "+") -> specialSum args
-    _ -> Left $ EvalError "Not implemented"
-
-
-specialSum :: [Expr] -> Either Error Expr
-specialSum [] = Right $ ExprAtom $ AtomInteger 0
-specialSum (a:args) = case a of
-    n@(ExprAtom (AtomInteger _)) ->
-        (s n) =<< specialSum args
-    e ->
-        Left $ EvalError ("Unexpected argument to sum" ++ show e)
-    where
-        s :: Expr -> Expr -> Either Error Expr
-        s (ExprAtom (AtomInteger n1)) (ExprAtom (AtomInteger n2)) = Right $ ExprAtom $ AtomInteger (n1 + n2)
-        s e1 e2 = Left $ EvalError ("Unexpected argument to sum" ++ show e1 ++ " " ++ show e2)
-
-
 internalRepr :: [Expr] -> Either Error [Internal]
 internalRepr [] = pure []
 internalRepr (e:exprs) = case e of
