@@ -39,11 +39,12 @@ data Internal
 simpleShowInternal :: Internal -> String
 simpleShowInternal i = case i of
     InternalAtom a -> simpleShowAtom a
-    _ -> "Error! Not implemented!"
+    InternalList l -> "(" ++ unwords (map simpleShowInternal l) ++ ")"
+    _ -> "Error! Show Not implemented!"
     where
         simpleShowAtom (AtomInteger x) = show x
         simpleShowAtom (AtomDouble x) = show x
-        simpleShowAtom (AtomIdent x) = show x
+        simpleShowAtom (AtomIdent x) = x
 
 
 
@@ -95,15 +96,11 @@ main = do
     putStr "> "
     str <- getLine
     let tokens = BF.first TokenParseError $ parseTokens str
-    --let exprs = createExprTree =<< tokens
-    let exprs' = makeExprs =<< tokens
-    --let result = eval defaultEnv =<< exprs'
-    let internal = internalRepr =<< exprs'
+    let exprs = makeExprs =<< tokens
+    let internal = internalRepr =<< exprs
     let internalEval = evalInternal defaultEnv =<< internal
     print $ show tokens
-    --print $ show (expr [BasicTokenLeftParen, BasicTokenAtom $ AtomTokenIdent "add"])
-    --print $ show (makeExprs [BasicTokenLeftParen, BasicTokenAtom $ AtomTokenIdent "add"])
-    print $ show exprs'
+    print $ show exprs
     print $ show internal
     print $ show internalEval
     case internalEval of
@@ -151,15 +148,25 @@ internalRepr (e:exprs) = case e of
         (:) <$> pure (InternalAtom a) <*> internalRepr exprs
     ExprParens [] ->
         Left $ EvalError "AQOEWJTGIPOWAENTGOIPNPIO"
-    ExprParens (name:args) ->
-        (:) <$> procCallFromParens name args <*> internalRepr exprs
-    where
-        procCallFromParens :: Expr -> [Expr] -> Either Error Internal
-        procCallFromParens nameExpr args =
-            let name = case nameExpr of
-                    (ExprAtom (AtomIdent i)) -> Right i
-                    _ -> Left $ EvalError "Expected identificator"
-            in InternalCallProc <$> name <*> internalRepr args
+    ExprParens body ->
+        (:) <$> parens body <*> internalRepr exprs
+
+
+parens :: [Expr] -> Either Error Internal
+parens [] =
+    Left $ EvalError "Missing procedure in parenthesis"
+parens [ExprAtom (AtomIdent "quote"), body] =
+    let quote = \case
+            ExprAtom a -> InternalAtom a
+            ExprParens list -> InternalList $ map quote list
+    in pure $ quote body
+parens (ExprAtom (AtomIdent "quote"):_) =
+    Left $ EvalError "Improper use of quote"
+parens (nameExpr:args) =
+    let name = case nameExpr of
+            (ExprAtom (AtomIdent i)) -> Right i
+            _ -> Left $ EvalError "Expected identificator"
+    in InternalCallProc <$> name <*> internalRepr args
 
 
 evalInternal :: Env -> [Internal] -> Either Error [Internal]
@@ -167,6 +174,8 @@ evalInternal _ [] = pure []
 evalInternal env (x:xs) = case x of
     a@(InternalAtom _) ->
         (:) <$> pure a <*> evalInternal env xs
+    list@(InternalList _) ->
+        (:) <$> pure list <*> evalInternal env xs
     InternalCallProc name args ->
         (:) <$> join (callProc env name <$> (evalInternal env args)) <*> evalInternal env xs
     _ -> Left $ EvalError "Not implemented"
@@ -200,40 +209,7 @@ applyFunc _ _ = Left $ EvalError "Built-in Function application error"
 --
 -- Recursive reading of tokens
 --
-{-
-recurse :: ([BasicToken], Expr)
-        -> ([BasicToken] -> Either Error ([BasicToken], [Expr]))
-        -> Either Error ([BasicToken], [Expr])
-recurse (ts, e) f = BF.second (e :) <$> f ts
 
-
-createExprTree :: [BasicToken] -> Either Error [Expr]
-createExprTree tokens = bimap id snd $ createTree tokens
-
-
-createTree :: [BasicToken] -> Either Error ([BasicToken], [Expr])
-createTree [] = pure ([], [])
-createTree (t:rest) = case t of
-    BasicTokenAtom a ->
-        recurse (rest, createExprFromAtomToken a) createTree
-    BasicTokenLeftParen ->
-        let parens = BF.second ExprParens <$> (createParens rest) :: Either Error ([BasicToken], Expr)
-        in join $ recurse <$> parens <*> pure createTree
-    BasicTokenRightParen ->
-        Left $ SyntaxError "Umatched ')'; Unexpected right parenthesis"
-
-
-createParens :: [BasicToken] -> Either Error ([BasicToken], [Expr])
-createParens [] = Left $ SyntaxError "Unexpected eof"
-createParens (t:rest) = case t of
-    BasicTokenAtom a ->
-        recurse (rest, createExprFromAtomToken a) createParens
-    BasicTokenLeftParen ->
-        let parens = BF.second ExprParens <$> (createParens rest) :: Either Error ([BasicToken], Expr)
-        in join $ recurse <$> parens <*> pure createParens
-    BasicTokenRightParen ->
-        pure (rest, [])
--}
 createExprFromAtomToken :: AtomToken -> Expr
 createExprFromAtomToken = \case
     AtomTokenInteger n -> ExprAtom $ AtomInteger n
@@ -255,7 +231,7 @@ exprList tokens = do
 
 
 expr :: [BasicToken] -> Either Error ([BasicToken], Expr)
-expr [] = Left $ SyntaxError "(Should not happen) No tokens found"
+expr [] = Left $ SyntaxError "Unexpected eof; Expected expression"
 expr (t:rest) = case t of
     BasicTokenAtom a ->
         pure (rest, createExprFromAtomToken a)
