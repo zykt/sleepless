@@ -30,9 +30,9 @@ data Expr
 data Internal
     = InternalAtom Atom
     | InternalList [Internal]
-    | InternalProc Args Expr
-    | InternalBuiltInProc Args (Func Internal (Either Error Internal))
-    | InternalCallProc Ident [Internal]
+    | InternalProc (Args Ident) [Internal]
+    | InternalBuiltInProc (Args ()) (Func Internal (Either Error Internal))
+    | InternalCallProc Internal [Internal]
     deriving (Show)
 
 
@@ -49,9 +49,9 @@ simpleShowInternal i = case i of
 
 -- Recursive structure for multiple arguments of procedures
 -- always ends in either Multiarg or NoArg
-data Args
-    = Arg Args
-    | MultiArg
+data Args a
+    = Arg a (Args a)
+    | MultiArg a
     | NoArg
     deriving (Show)
 
@@ -81,7 +81,7 @@ defaultEnv :: Env
 defaultEnv = Map.singleton "add" (builtInBinaryProc builtInSum)
     where
         builtInBinaryProc proc = InternalBuiltInProc binaryArgs (Func2 proc)
-        binaryArgs = Arg (Arg NoArg)
+        binaryArgs = Arg () (Arg () NoArg)
 
 
 builtInSum :: Internal -> Internal -> Either Error Internal
@@ -121,32 +121,59 @@ repl config = do
 -- Evaluation
 --
 
+-- Create internal representation from expressions
 internalRepr :: [Expr] -> Either Error [Internal]
 internalRepr [] = pure []
 internalRepr (e:exprs) = case e of
     ExprAtom a ->
         (:) <$> pure (InternalAtom a) <*> internalRepr exprs
-    ExprParens [] ->
-        Left $ EvalError "AQOEWJTGIPOWAENTGOIPNPIO"
     ExprParens body ->
         (:) <$> parens body <*> internalRepr exprs
 
 
+-- Creates internal representation for ExprParens case of Expr
+-- Creates procedures calls and language syntax
 parens :: [Expr] -> Either Error Internal
 parens [] =
     Left $ EvalError "Missing procedure in parenthesis"
 parens [ExprAtom (AtomIdent "quote"), body] =
-    let quote = \case
-            ExprAtom a -> InternalAtom a
-            ExprParens list -> InternalList $ map quote list
-    in pure $ quote body
+    pure $ quote body
 parens (ExprAtom (AtomIdent "quote"):_) =
     Left $ EvalError "Improper use of quote"
-parens (nameExpr:args) =
-    let name = case nameExpr of
-            (ExprAtom (AtomIdent i)) -> Right i
-            _ -> Left $ EvalError "Expected identificator"
-    in InternalCallProc <$> name <*> internalRepr args
+parens (ExprAtom (AtomIdent "lambda"):args:body) =
+    case args of
+        ExprAtom (AtomIdent i) ->
+            pure $ lambda (MultiArg i) body
+        ExprParens argExprList ->
+            let identList :: Either Error [Ident]
+                identList = sequence $ map ident argExprList
+                makeArgs :: [Ident] -> Args Ident
+                makeArgs [] = NoArg
+                makeArgs (a:rest) = Arg a $ makeArgs rest
+            in lambda <$> (makeArgs <$> identList) <*> pure body
+        _ ->
+            Left $ EvalError "Improper arguments to lambda"
+parens body =
+    internalRepr body >>= \case
+        proc:rest ->
+            pure $ InternalCallProc proc rest
+        [] ->
+            Left $ EvalError "Empty procedure found"
+
+
+quote :: Expr -> Internal
+quote = \case
+        ExprAtom a -> InternalAtom a
+        ExprParens list -> InternalList $ map quote list
+
+
+lambda :: Args Ident -> [Expr] -> Internal
+lambda args body = InternalProc args (map quote body)
+
+
+ident :: Expr -> Either Error Ident
+ident (ExprAtom (AtomIdent i)) = Right i
+ident _ = Left $ EvalError "Expected identificator"
 
 
 evalInternal :: Env -> [Internal] -> Either Error [Internal]
@@ -156,8 +183,23 @@ evalInternal env (x:xs) = case x of
         (:) <$> pure a <*> evalInternal env xs
     list@(InternalList _) ->
         (:) <$> pure list <*> evalInternal env xs
-    InternalCallProc name args ->
-        (:) <$> join (callProc env name <$> (evalInternal env args)) <*> evalInternal env xs
+    InternalCallProc (InternalAtom (AtomIdent name)) args ->
+        (:) <$> join (callProc env name <$> evalInternal env args) <*> evalInternal env xs
+    InternalCallProc (InternalProc procArgs body) callArgs ->
+        let formatArgs :: Args Ident -> [Internal] -> Either Error (Args (Ident, Internal))
+            formatArgs NoArg [] = pure NoArg
+            formatArgs (MultiArg ident) args = pure $ MultiArg (ident, InternalList args)
+            formatArgs (Arg ident rest) (a:args) = Arg (ident, a) <$> formatArgs rest args
+            formatArgs _ _ = Left $ EvalError "Invalid arguments to proc"
+            inject :: Env -> Args (Ident, Internal) -> Env
+            inject env NoArg = env
+            inject env (MultiArg (key, val)) = Map.insert key val env
+            inject env (Arg (key, val) rest) = Map.insert key val $ inject env rest
+            evalBody :: Env -> Internal -> Either Error Internal
+            evalBody env a@(InternalAtom _) = pure a
+            evalBody env (InternalList )
+        in evalInternal <$> (inject env <$> formatArgs procArgs callArgs) <*> pure body
+    --InternalP
     _ -> Left $ EvalError "Not implemented"
 
 
@@ -175,9 +217,9 @@ callProc env name args = helper =<< (lookupEnv env name)
             InternalBuiltInProc procArgs f ->
                 applyFunc f =<< format args procArgs
             _ -> Left $ EvalError "Not implemented"
-        format (x:xs) (Arg rest) = (:) <$> pure x <*> format xs rest
+        format (x:xs) (Arg _ rest) = (:) <$> pure x <*> format xs rest
         format [] NoArg = pure []
-        format xs MultiArg = pure xs
+        format xs (MultiArg _) = pure xs
         format _ _ = Left $ EvalError "Wrong arguments"
 
 
