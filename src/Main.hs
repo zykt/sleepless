@@ -32,7 +32,7 @@ data Internal
     | InternalList [Internal]
     | InternalProc (Args Ident) [Internal]
     | InternalBuiltInProc (Args ()) (Func Internal (Either Error Internal))
-    | InternalCallProc Internal [Internal]
+    -- | InternalCallProc Internal [Internal]
     deriving (Show)
 
 
@@ -128,37 +128,68 @@ internalRepr (e:exprs) = case e of
     ExprAtom a ->
         (:) <$> pure (InternalAtom a) <*> internalRepr exprs
     ExprParens body ->
-        (:) <$> parens body <*> internalRepr exprs
+        (:) . InternalList <$> internalRepr body <*> internalRepr exprs
+
+
+evalInternal :: Env -> [Internal] -> Either Error [Internal]
+evalInternal _ [] = pure []
+evalInternal env (x:xs) = case x of
+    InternalAtom (AtomIdent i) ->
+        (:) <$> lookupEnv env i <*> evalInternal env xs
+    a@(InternalAtom _) ->
+        (:) <$> pure a <*> evalInternal env xs
+    InternalList body ->
+        (:) <$> parens env body <*> evalInternal env xs
+    --InternalP
+    _ -> Left $ EvalError "Not implemented"
 
 
 -- Creates internal representation for ExprParens case of Expr
 -- Creates procedures calls and language syntax
-parens :: [Expr] -> Either Error Internal
-parens [] =
+parens :: Env -> [Internal] -> Either Error Internal
+parens _ [] =
     Left $ EvalError "Missing procedure in parenthesis"
-parens [ExprAtom (AtomIdent "quote"), body] =
-    pure $ quote body
-parens (ExprAtom (AtomIdent "quote"):_) =
+parens _ q@[InternalAtom (AtomIdent "quote"), body] =
+    pure $ InternalList q
+parens _ (InternalAtom (AtomIdent "quote"):_) =
     Left $ EvalError "Improper use of quote"
-parens (ExprAtom (AtomIdent "lambda"):args:body) =
+parens _ (InternalAtom (AtomIdent "lambda"):args:body) =
     case args of
-        ExprAtom (AtomIdent i) ->
-            pure $ lambda (MultiArg i) body
-        ExprParens argExprList ->
+        InternalAtom (AtomIdent i) ->
+            pure $ InternalProc (MultiArg i) body
+        InternalList argExprList ->
             let identList :: Either Error [Ident]
                 identList = sequence $ map ident argExprList
                 makeArgs :: [Ident] -> Args Ident
                 makeArgs [] = NoArg
                 makeArgs (a:rest) = Arg a $ makeArgs rest
-            in lambda <$> (makeArgs <$> identList) <*> pure body
+            in InternalProc <$> (makeArgs <$> identList) <*> pure body
         _ ->
             Left $ EvalError "Improper arguments to lambda"
-parens body =
-    internalRepr body >>= \case
-        proc:rest ->
-            pure $ InternalCallProc proc rest
-        [] ->
-            Left $ EvalError "Empty procedure found"
+parens env content = evalInternal env content >>= \case
+    InternalAtom (AtomIdent name) : callArgs ->
+        join $ callProc env name <$> evalInternal env callArgs
+    InternalProc procArgs body : callArgs ->
+        let formatArgs :: Args Ident -> [Internal] -> Either Error (Args (Ident, Internal))
+            formatArgs NoArg [] = pure NoArg
+            formatArgs (MultiArg name) args = pure $ MultiArg (name, InternalList args)
+            formatArgs (Arg name rest) (a:args) = Arg (name, a) <$> formatArgs rest args
+            formatArgs _ _ = Left $ EvalError "Invalid arguments to proc"
+            inject :: Env -> Args (Ident, Internal) -> Env
+            inject env_ NoArg = env_
+            inject env_ (MultiArg (key, val)) = Map.insert key val env_
+            inject env_ (Arg (key, val) rest) = Map.insert key val $ inject env_ rest
+        in last <$> (join . sequence $ evalInternal <$> (inject env <$> formatArgs procArgs callArgs) <*> pure body)
+    InternalBuiltInProc args func : callArgs ->
+        let format (x:xs) (Arg _ rest) = (:) <$> pure x <*> format xs rest
+            format [] NoArg = pure []
+            format xs (MultiArg _) = pure xs
+            format _ _ = Left $ EvalError "Wrong arguments"
+        in applyFunc func =<< (format callArgs args)
+    unexpected ->
+        Left $ EvalError ("Unexpected: " ++ show unexpected)
+    --[] ->
+    --    Left $ EvalError "Empty procedure found"
 
 
 quote :: Expr -> Internal
@@ -167,40 +198,16 @@ quote = \case
         ExprParens list -> InternalList $ map quote list
 
 
-lambda :: Args Ident -> [Expr] -> Internal
-lambda args body = InternalProc args (map quote body)
+--lambda :: Args Ident -> [Internal] -> Internal
+--lambda args body = InternalProc args body
 
 
-ident :: Expr -> Either Error Ident
-ident (ExprAtom (AtomIdent i)) = Right i
+ident :: Internal -> Either Error Ident
+ident (InternalAtom (AtomIdent i)) = Right i
 ident _ = Left $ EvalError "Expected identificator"
 
 
-evalInternal :: Env -> [Internal] -> Either Error [Internal]
-evalInternal _ [] = pure []
-evalInternal env (x:xs) = case x of
-    a@(InternalAtom _) ->
-        (:) <$> pure a <*> evalInternal env xs
-    list@(InternalList _) ->
-        (:) <$> pure list <*> evalInternal env xs
-    InternalCallProc (InternalAtom (AtomIdent name)) args ->
-        (:) <$> join (callProc env name <$> evalInternal env args) <*> evalInternal env xs
-    InternalCallProc (InternalProc procArgs body) callArgs ->
-        let formatArgs :: Args Ident -> [Internal] -> Either Error (Args (Ident, Internal))
-            formatArgs NoArg [] = pure NoArg
-            formatArgs (MultiArg ident) args = pure $ MultiArg (ident, InternalList args)
-            formatArgs (Arg ident rest) (a:args) = Arg (ident, a) <$> formatArgs rest args
-            formatArgs _ _ = Left $ EvalError "Invalid arguments to proc"
-            inject :: Env -> Args (Ident, Internal) -> Env
-            inject env NoArg = env
-            inject env (MultiArg (key, val)) = Map.insert key val env
-            inject env (Arg (key, val) rest) = Map.insert key val $ inject env rest
-            evalBody :: Env -> Internal -> Either Error Internal
-            evalBody env a@(InternalAtom _) = pure a
-            evalBody env (InternalList )
-        in evalInternal <$> (inject env <$> formatArgs procArgs callArgs) <*> pure body
-    --InternalP
-    _ -> Left $ EvalError "Not implemented"
+
 
 
 lookupEnv :: Env -> Ident -> Either Error Internal
