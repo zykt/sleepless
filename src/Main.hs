@@ -139,20 +139,20 @@ evalInternal env (x:xs) = case x of
     a@(InternalAtom _) ->
         (:) <$> pure a <*> evalInternal env xs
     InternalList body ->
-        (:) <$> parens env body <*> evalInternal env xs
-    --InternalP
-    _ -> Left $ EvalError "Not implemented"
+        (:) <$> evalParens env body <*> evalInternal env xs
+    _ ->
+        Left $ EvalError "Not implemented"
 
 
--- Creates internal representation for ExprParens case of Expr
--- Creates procedures calls and language syntax
-parens :: Env -> [Internal] -> Either Error Internal
-parens _ q@(InternalAtom (AtomIdent "quote"):rest) = case rest of
+-- Evaluates internal representation for ExprParens case of Expr
+-- Calls procedures and special language syntax
+evalParens :: Env -> [Internal] -> Either Error Internal
+evalParens _ q@(InternalAtom (AtomIdent "quote"):rest) = case rest of
     [_] -> pure $ InternalList q
     _ -> Left $ EvalError "Improper use of quote"
-parens _ (InternalAtom (AtomIdent "lambda"):args:body) =
+evalParens _ (InternalAtom (AtomIdent "lambda"):args:body) =
     evalLambda args body
-parens env content =
+evalParens env content =
     evalProcCall env =<< evalInternal env content
 
 
