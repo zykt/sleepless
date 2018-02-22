@@ -9,6 +9,10 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Void
 import Parser
+import Control.Monad.Trans.Class
+import Control.Monad.Trans.Except
+import Control.Monad.Trans.State
+import Control.Arrow
 
 
 -- Basic element of Expr
@@ -77,6 +81,14 @@ type Ident = String
 type Env = Map Ident Internal
 
 
+type EnvironmentT = State Env
+
+type ExceptEnvironmentT = ExceptT Error EnvironmentT
+
+-- Monad stack for evaluation
+type EvaluatorT a b = ExceptEnvironmentT a -> ExceptEnvironmentT b
+
+
 defaultEnv :: Env
 defaultEnv = Map.singleton "add" (builtInBinaryProc builtInSum)
     where
@@ -106,15 +118,17 @@ repl config = do
     let tokens = BF.first TokenParseError $ parseTokens str
     let exprs = makeExprs =<< tokens
     let internal = internalRepr =<< exprs
-    let internalEval = evalInternal defaultEnv =<< internal
+    let internalEval = (evalInternal $ either throwE pure internal)
     when (debug config) $ do
         print $ show tokens
         print $ show exprs
         print $ show internal
-        print $ show internalEval
-    case internalEval of
-        Right xs -> forM_ xs (putStrLn . simpleShowInternal)
-        Left err -> print . show $ err
+        --print $ show internalEval
+    let helper :: ExceptEnvironmentT [Internal] -> IO ()
+        helper = runExceptT >>> flip evalState defaultEnv >>> \case
+            Right xs -> forM_ xs (putStrLn . simpleShowInternal)
+            Left err -> print . show $ err
+    helper internalEval
     when (str /= "(exit)") $ repl config
 
 --
@@ -131,44 +145,65 @@ internalRepr (e:exprs) = case e of
         (:) . InternalList <$> internalRepr body <*> internalRepr exprs
 
 
-evalInternal :: Env -> [Internal] -> Either Error [Internal]
-evalInternal _ [] = pure []
-evalInternal env (x:xs) = case x of
-    InternalAtom (AtomIdent i) ->
-        (:) <$> lookupEnv env i <*> evalInternal env xs
-    a@(InternalAtom _) ->
-        (:) <$> pure a <*> evalInternal env xs
-    InternalList body ->
-        (:) <$> evalParens env body <*> evalInternal env xs
-    _ ->
-        Left $ EvalError "Not implemented"
+evalInternal :: EvaluatorT [Internal] [Internal]
+evalInternal body = body >>= \x -> case x of
+    [] ->
+        pure []
+    (InternalAtom (AtomIdent i) : rest) ->
+        (:) <$> lookupEnv (pure i) <*> evalInternal (pure rest)
+    (a@(InternalAtom _) : rest) ->
+        (:) <$> pure a <*> evalInternal (pure rest)
+    (InternalList body : rest) ->
+        (:) <$> evalParens (pure body) <*> evalInternal (pure rest)
+    unexpected ->
+        throwE $ EvalError $ "Not implemented " ++ show unexpected ++ " from " ++ show x
 
 
 -- Evaluates internal representation for ExprParens case of Expr
 -- Calls procedures and special language syntax
-evalParens :: Env -> [Internal] -> Either Error Internal
-evalParens _ q@(InternalAtom (AtomIdent "quote"):rest) = case rest of
-    [_] -> pure $ InternalList q
-    _ -> Left $ EvalError "Improper use of quote"
-evalParens _ (InternalAtom (AtomIdent "lambda"):args:body) =
-    evalLambda args body
-evalParens env content =
-    evalProcCall env =<< evalInternal env content
+evalParens :: EvaluatorT [Internal] Internal
+evalParens body = body >>= \case
+    q@(InternalAtom (AtomIdent "quote"):rest) -> case rest of
+        [_] -> pure $ InternalList q
+        _ -> throwE $ EvalError "Improper use of quote"
+    (InternalAtom (AtomIdent "lambda"):body') ->
+        evalLambda (pure body')
+    content ->
+        evalProcCall $ evalInternal (pure content)
 
 
-evalLambda :: Internal -> [Internal] -> Either Error Internal
-evalLambda args body = case args of
-    InternalAtom (AtomIdent i) ->
+evalLambda :: EvaluatorT [Internal] Internal
+evalLambda content = content >>= \case
+    InternalAtom (AtomIdent i) : body ->
         pure $ InternalProc (MultiArg i) body
-    InternalList argExprList ->
+    InternalList argExprList : body  ->
         let identList :: Either Error [Ident]
             identList = sequence $ map ident argExprList
             makeArgs :: [Ident] -> Args Ident
             makeArgs [] = NoArg
             makeArgs (a:rest) = Arg a $ makeArgs rest
-        in InternalProc <$> (makeArgs <$> identList) <*> pure body
+        in either throwE pure $ InternalProc <$> (makeArgs <$> identList) <*> pure body
     _ ->
-        Left $ EvalError "Improper arguments to lambda"
+        throwE $ EvalError "Improper arguments to lambda"
+
+
+evalProcCall :: EvaluatorT [Internal] Internal
+evalProcCall content = content >>= \case
+    InternalProc procArgs procBody : callArgs -> do
+        args <- either throwE pure (formatArgs procArgs callArgs)
+        lift $ modify (\e -> injectArgs e args)
+        result <- evalInternal (pure procBody)
+        return $ last result
+            --either throwE pure $ last <$> (join . sequence $ evalInternal <$> (injectArgs env <$> formatArgs procArgs callArgs) <*> pure body)
+    InternalBuiltInProc args func : callArgs ->
+        let format (x:xs) (Arg _ rest) = (:) <$> pure x <*> format xs rest
+            format [] NoArg = pure []
+            format xs (MultiArg _) = pure xs
+            format _ _ = Left $ EvalError "Wrong arguments"
+        in either throwE pure $ applyFunc func =<< format callArgs args
+    unexpected ->
+        throwE $ EvalError ("Invalid procedure call: Unexpected " ++ show unexpected)
+
 
 
 ident :: Internal -> Either Error Ident
@@ -176,26 +211,14 @@ ident (InternalAtom (AtomIdent i)) = Right i
 ident _ = Left $ EvalError "Expected identificator"
 
 
-lookupEnv :: Env -> Ident -> Either Error Internal
-lookupEnv env name = case Map.lookup name env of
-    Nothing -> Left $ EvalError ("Undefined reference " ++ name)
-    Just x -> Right x
+lookupEnv :: EvaluatorT Ident Internal
+lookupEnv name = do
+    env <- lift get
+    name' <- name
+    case Map.lookup name' env of
+        Nothing -> throwE $ EvalError ("Undefined reference " ++ name')
+        Just x -> pure x
 
-
-evalProcCall :: Env -> [Internal] -> Either Error Internal
-evalProcCall env (proc:callArgs) = case proc of
-    InternalProc procArgs body ->
-        last <$> (join . sequence $ evalInternal <$> (injectArgs env <$> formatArgs procArgs callArgs) <*> pure body)
-    InternalBuiltInProc args func ->
-        let format (x:xs) (Arg _ rest) = (:) <$> pure x <*> format xs rest
-            format [] NoArg = pure []
-            format xs (MultiArg _) = pure xs
-            format _ _ = Left $ EvalError "Wrong arguments"
-        in applyFunc func =<< format callArgs args
-    unexpected ->
-        Left $ EvalError ("Invalid procedure call: Unexpected " ++ show unexpected)
-evalProcCall _ [] =
-    Left $ EvalError "Invalid procedure call: Empty application () "
 
 
 formatArgs :: Args Ident -> [Internal] -> Either Error (Args (Ident, Internal))
