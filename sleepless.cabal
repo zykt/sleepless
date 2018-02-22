@@ -21,3 +21,4 @@ executable sleepless
   build-depends:       base >= 4.7 && < 5
                      , megaparsec
                      , containers
+                     , transformers
