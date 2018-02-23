@@ -205,7 +205,7 @@ evalProcCall content = content >>= \case
     InternalProc procArgs procBody : callArgs -> do
         args <- either throwE pure (formatArgs procArgs callArgs)
         s <- lift get
-        lift $ modify (\e -> injectArgs e args)
+        lift $ modify (injectArgs args)
         result <- evalInternal (pure procBody)
         lift $ put s
         return $ last result
@@ -242,10 +242,10 @@ formatArgs (Arg name rest) (a:args) = Arg (name, a) <$> formatArgs rest args
 formatArgs _ _ = Left $ EvalError "Invalid arguments to proc"
 
 
-injectArgs :: Env -> Args (Ident, Internal) -> Env
-injectArgs env_ NoArg = env_
-injectArgs env_ (MultiArg (key, val)) = Map.insert key val env_
-injectArgs env_ (Arg (key, val) rest) = Map.insert key val $ injectArgs env_ rest
+injectArgs :: Args (Ident, Internal) -> Env -> Env
+injectArgs NoArg env = env
+injectArgs (MultiArg (key, val)) env  = Map.insert key val env
+injectArgs (Arg (key, val) rest) env  = Map.insert key val $ injectArgs rest env
 
 
 applyFunc :: Func Internal (Either Error Internal) -> [Internal] -> Either Error Internal
