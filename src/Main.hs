@@ -163,11 +163,13 @@ evalInternal body = body >>= \x -> case x of
 -- Calls procedures and special language syntax
 evalParens :: EvaluatorT [Internal] Internal
 evalParens body = body >>= \case
-    q@(InternalAtom (AtomIdent "quote"):rest) -> case rest of
+    q@(InternalAtom (AtomIdent "quote") : rest) -> case rest of
         [_] -> pure $ InternalList q
         _ -> throwE $ EvalError "Improper use of quote"
-    (InternalAtom (AtomIdent "lambda"):body') ->
+    (InternalAtom (AtomIdent "lambda") : body') ->
         evalLambda (pure body')
+    (InternalAtom (AtomIdent "define") : body') ->
+        evalDefine (pure body')
     content ->
         evalProcCall $ evalInternal (pure content)
 
@@ -187,11 +189,22 @@ evalLambda content = content >>= \case
         throwE $ EvalError "Improper arguments to lambda"
 
 
+evalDefine :: EvaluatorT [Internal] Internal
+evalDefine content = content >>= \case
+    InternalAtom (AtomIdent i) : value : [] -> do
+        evaluated <- evalInternal (pure [value])
+        let value' = head evaluated
+        lift $ modify (Map.insert i value')
+        return value'
+    _ ->
+        throwE $ EvalError "Improper use of define"
+
+
 evalProcCall :: EvaluatorT [Internal] Internal
 evalProcCall content = content >>= \case
     InternalProc procArgs procBody : callArgs -> do
         args <- either throwE pure (formatArgs procArgs callArgs)
-        lift $ modify (\e -> injectArgs e args)
+        lift $ modify (\e -> injectArgs e args) -- Possible bug!!
         result <- evalInternal (pure procBody)
         return $ last result
             --either throwE pure $ last <$> (join . sequence $ evalInternal <$> (injectArgs env <$> formatArgs procArgs callArgs) <*> pure body)
