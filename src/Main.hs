@@ -204,10 +204,11 @@ evalProcCall :: EvaluatorT [Internal] Internal
 evalProcCall content = content >>= \case
     InternalProc procArgs procBody : callArgs -> do
         args <- either throwE pure (formatArgs procArgs callArgs)
-        lift $ modify (\e -> injectArgs e args) -- Possible bug!!
+        s <- lift get
+        lift $ modify (\e -> injectArgs e args)
         result <- evalInternal (pure procBody)
+        lift $ put s
         return $ last result
-            --either throwE pure $ last <$> (join . sequence $ evalInternal <$> (injectArgs env <$> formatArgs procArgs callArgs) <*> pure body)
     InternalBuiltInProc args func : callArgs ->
         let format (x:xs) (Arg _ rest) = (:) <$> pure x <*> format xs rest
             format [] NoArg = pure []
