@@ -20,9 +20,9 @@ repl config env = do
     putStr "> "
     str <- getLine
     when (debug config) $ debugEval str
-    let evaluation = eval defaultEnv str
+    let evaluation = eval env str
     let newEnv = either (const env) snd evaluation
-    case eval defaultEnv str of
+    case evaluation of
         Left e ->
             print e
         Right (result, _) ->
