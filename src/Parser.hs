@@ -59,7 +59,9 @@ quoteParser = char '\'' *> pure BasicTokenQuote
 
 -- terminator for lookAhead termination of elements
 terminatorParser :: Parser ()
-terminatorParser = (oneOf "() " *> pure ()) <|> (eof *> pure ())
+terminatorParser =  oneOf "() " *> pure ()
+                <|> newline *> pure ()
+                <|> eof *> pure ()
 
 -- works:
 -- > parse tokensParser "" "(+ 2 s2 35)"
