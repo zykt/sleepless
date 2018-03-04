@@ -8,4 +8,5 @@
 - [ ] Imports and modules
 - [ ] Decorators
 - [ ] Standard Lib
-- [ ] Arguments parser for config
+- [x] Arguments parser for config
+- [ ] Comments
