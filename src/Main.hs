@@ -3,6 +3,7 @@ module Main where
 
 import Control.Monad
 import Evaluator
+import Builtins
 
 
 data Config = Config { debug :: Bool }
