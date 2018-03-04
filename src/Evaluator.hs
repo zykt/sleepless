@@ -41,7 +41,9 @@ simpleShowInternal :: Internal -> String
 simpleShowInternal i = case i of
     InternalAtom a -> simpleShowAtom a
     InternalList l -> "(" ++ unwords (map simpleShowInternal l) ++ ")"
-    _ -> "Error! Show Not implemented!"
+    InternalProc _ _ -> "#proc"
+    InternalBuiltInProc _ _ -> "#builtinproc"
+    -- _ -> "Error! Show Not implemented!"
     where
         simpleShowAtom (AtomInteger x) = show x
         simpleShowAtom (AtomDouble x) = show x
