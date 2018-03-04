@@ -12,7 +12,6 @@ import Parser
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.State
-import Control.Arrow
 
 
 -- Basic element of Expr
@@ -36,7 +35,6 @@ data Internal
     | InternalList [Internal]
     | InternalProc (Args Ident) [Internal]
     | InternalBuiltInProc (Args ()) (Func Internal (Either Error Internal))
-    -- | InternalCallProc Internal [Internal]
     deriving (Show)
 
 
@@ -107,30 +105,51 @@ data Config = Config { debug :: Bool }
 
 main :: IO ()
 main = do
-    let config = Config True
-    repl config
+    let config = Config False
+    repl config defaultEnv
 
 
-repl :: Config -> IO ()
-repl config = do
+repl :: Config -> Env -> IO ()
+repl config env = do
     putStr "> "
     str <- getLine
+    when (debug config) $ debugEval str
+    let evaluation = eval defaultEnv str
+    let newEnv = either (const env) snd evaluation
+    case eval defaultEnv str of
+        Left e ->
+            print e
+        Right (result, _) ->
+            forM_ result (print . simpleShowInternal)
+    when (str /= "(exit)") $ repl config newEnv
+
+
+eval :: Env -> String -> Either Error ([Internal], Env)
+eval env input = do
+    tokens <- BF.first TokenParseError $ parseTokens input
+    exprs <- makeExprs tokens
+    internal <- internalRepr exprs
+    let (internalEval, newState) = runState (runExceptT $ evalInternal (pure internal)) env
+    result <- internalEval
+    return (result, newState)
+
+
+debugEval :: String -> IO ()
+debugEval str = do
     let tokens = BF.first TokenParseError $ parseTokens str
     let exprs = makeExprs =<< tokens
     let internal = internalRepr =<< exprs
-    let internalEval = (evalInternal $ either throwE pure internal)
-    when (debug config) $ do
-        print $ show tokens
-        print $ show exprs
-        print $ show internal
-        --print $ show internalEval
-    let helper :: ExceptEnvironmentT [Internal] -> IO ()
+    --let internalEval = evalInternal $ either throwE pure internal
+    print $ show tokens
+    print $ show exprs
+    print $ show internal
+    --print $ show internalEval
+    {-let helper :: ExceptEnvironmentT [Internal] -> IO ()
         helper = runExceptT >>> flip evalState defaultEnv >>> \case
             Right xs -> forM_ xs (putStrLn . simpleShowInternal)
             Left err -> print . show $ err
     helper internalEval
-    when (str /= "(exit)") $ repl config
-
+    -}
 --
 -- Evaluation
 --
