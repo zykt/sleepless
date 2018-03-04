@@ -22,3 +22,4 @@ executable sleepless
                      , megaparsec
                      , containers
                      , transformers
+                     , optparse-applicative
