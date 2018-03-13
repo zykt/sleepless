@@ -204,7 +204,6 @@ evalProcCall content = content >>= \case
         throwE $ EvalError ("Invalid procedure call: Unexpected " ++ show unexpected)
 
 
-
 ident :: Internal -> Either Error Ident
 ident (InternalAtom (AtomIdent i)) = Right i
 ident _ = Left $ EvalError "Expected identificator"
@@ -217,7 +216,6 @@ lookupEnv name = do
     case Map.lookup name' env of
         Nothing -> throwE $ EvalError ("Undefined reference " ++ name')
         Just x -> pure x
-
 
 
 formatArgs :: Args Ident -> [Internal] -> Either Error (Args (Ident, Internal))
