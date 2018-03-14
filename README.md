@@ -10,3 +10,4 @@
 - [ ] Standard Lib
 - [x] Arguments parser for config
 - [ ] Comments
+- [ ] Remove lifts
