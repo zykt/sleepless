@@ -11,6 +11,7 @@ data AtomToken
     = AtomTokenInteger Integer
     | AtomTokenDouble Double
     | AtomTokenIdent  String
+    | AtomTokenSpecial String
     deriving (Show)
 
 
@@ -48,6 +49,11 @@ identParser = BasicTokenAtom . AtomTokenIdent <$> parser
     where parser = (:) <$> (letterChar <|> symbol)
                        <*> many (letterChar <|> symbol <|> digitChar)
 
+specialParser :: Parser BasicToken
+specialParser = BasicTokenAtom . AtomTokenSpecial <$> parser
+    where parser = char '#' *> ident
+          ident = many (letterChar <|> symbol <|> digitChar)
+
 rightParenParser :: Parser BasicToken
 rightParenParser = char ')' *> pure BasicTokenRightParen
 
@@ -56,6 +62,7 @@ leftParenParser = char '(' *> pure BasicTokenLeftParen
 
 quoteParser :: Parser BasicToken
 quoteParser = char '\'' *> pure BasicTokenQuote
+
 
 -- terminator for lookAhead termination of elements
 terminatorParser :: Parser ()
@@ -77,4 +84,5 @@ tokensParser = space
             [ numberParser
             , identParser
             , doubleParser
+            , specialParser
             ]

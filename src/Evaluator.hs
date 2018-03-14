@@ -18,6 +18,7 @@ data Atom
     = AtomInteger Integer
     | AtomDouble  Double
     | AtomIdent   Ident
+    | AtomSpecial Ident
     deriving (Show)
 
 
@@ -48,6 +49,7 @@ simpleShowInternal i = case i of
         simpleShowAtom (AtomInteger x) = show x
         simpleShowAtom (AtomDouble x) = show x
         simpleShowAtom (AtomIdent x) = x
+        simpleShowAtom (AtomSpecial x) = '#':x
 
 
 -- Recursive structure for multiple arguments of procedures
@@ -144,6 +146,12 @@ evalInternal body = body >>= \x -> case x of
         throwE $ EvalError $ "Not implemented " ++ show unexpected ++ " from " ++ show x
 
 
+evalOneInternal :: EvaluatorT Internal Internal
+evalOneInternal internal = do
+    internal' <- internal
+    head <$> evalInternal (pure [internal'])
+
+
 -- Evaluates internal representation for ExprParens case of Expr
 -- Calls procedures and special language syntax
 evalParens :: EvaluatorT [Internal] Internal
@@ -155,6 +163,8 @@ evalParens body = body >>= \case
         evalLambda (pure body')
     (InternalAtom (AtomIdent "define") : body') ->
         evalDefine (pure body')
+    (InternalAtom (AtomIdent "if") : body') ->
+        evalIf (pure body')
     content ->
         evalProcCall $ evalInternal (pure content)
 
@@ -190,6 +200,19 @@ evalDefine content = content >>= \case
         return $ injectSelf value'
     _ ->
         throwE $ EvalError "Improper use of define"
+
+
+evalIf :: EvaluatorT [Internal] Internal
+evalIf content = content >>= \case
+    (cond : thenClause : elseClause : []) -> do
+        condResult <- evalOneInternal (pure cond)
+        case condResult of
+            InternalAtom (AtomSpecial "f") ->
+                evalOneInternal (pure thenClause)
+            _ ->
+                evalOneInternal (pure elseClause)
+    _ ->
+        throwE $ EvalError "Improper use of if"
 
 
 evalProcCall :: EvaluatorT [Internal] Internal
@@ -253,6 +276,7 @@ createExprFromAtomToken = \case
     AtomTokenInteger n -> ExprAtom $ AtomInteger n
     AtomTokenDouble d -> ExprAtom $ AtomDouble d
     AtomTokenIdent  i -> ExprAtom $ AtomIdent i
+    AtomTokenSpecial s -> ExprAtom $ AtomSpecial s
 
 
 makeExprs :: [BasicToken] -> Either Error [Expr]
