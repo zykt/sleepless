@@ -41,6 +41,7 @@ data Internal
 simpleShowInternal :: Internal -> String
 simpleShowInternal i = case i of
     InternalAtom a -> simpleShowAtom a
+    InternalList [InternalAtom (AtomIdent "quote"), rest] -> '\'' : simpleShowInternal rest
     InternalList l -> "(" ++ unwords (map simpleShowInternal l) ++ ")"
     InternalProc _ _ _ -> "#proc"
     InternalBuiltInProc _ _ -> "#builtinproc"
