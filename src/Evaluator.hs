@@ -209,9 +209,9 @@ evalIf content = content >>= \case
         condResult <- evalOneInternal (pure cond)
         case condResult of
             InternalAtom (AtomSpecial "f") ->
-                evalOneInternal (pure thenClause)
-            _ ->
                 evalOneInternal (pure elseClause)
+            _ ->
+                evalOneInternal (pure thenClause)
     _ ->
         throwE $ EvalError "Improper use of if"
 
