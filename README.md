@@ -2,8 +2,8 @@
 
 #TODO:
 - [ ] Work on linter warnings
-- [ ] Conditionals
-- [ ] Recursion
+- [x] Conditionals
+- [x] Recursion
 - [ ] Macro
 - [ ] Imports and modules
 - [ ] Decorators
