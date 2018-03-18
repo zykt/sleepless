@@ -191,14 +191,18 @@ evalLambda content = content >>= \case
 evalDefine :: EvaluatorT [Internal] Internal
 evalDefine content = content >>= \case
     InternalAtom (AtomIdent i) : value : [] -> do
-        evaluated <- evalInternal (pure [value])
-        let [value'] = evaluated
-        let modifyEnv = Map.insert i value'
+        evaluated <- evalOneInternal (pure value)
+        let modifyEnv = Map.insert i evaluated
         let injectSelf (InternalProc procEnv procArgs procBody) =
                 InternalProc (modifyEnv procEnv) procArgs procBody
             injectSelf internal = internal
         lift $ modify modifyEnv
-        return $ injectSelf value'
+        t <- lift get
+        case injectSelf evaluated of
+            (InternalProc procEnv procArgs procBody) ->
+                throwE $ EvalError $ "AAAA: " ++ show procEnv
+            _ ->
+                return $ injectSelf evaluated
     _ ->
         throwE $ EvalError "Improper use of define"
 
