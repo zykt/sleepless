@@ -33,8 +33,9 @@ data Expr
 data Internal
     = InternalAtom Atom
     | InternalList [Internal]
-    | InternalProc Env (Args Ident) [Internal]
+    | InternalProc (Args Ident) [Internal]
     | InternalBuiltInProc (Args ()) (Func Internal (Either Error Internal))
+    | InternalClosure Env Internal
     deriving (Show)
 
 
@@ -43,8 +44,9 @@ simpleShowInternal i = case i of
     InternalAtom a -> simpleShowAtom a
     InternalList [InternalAtom (AtomIdent "quote"), rest] -> '\'' : simpleShowInternal rest
     InternalList l -> "(" ++ unwords (map simpleShowInternal l) ++ ")"
-    InternalProc _ _ _ -> "#proc"
+    InternalProc _ _ -> "#proc"
     InternalBuiltInProc _ _ -> "#builtinproc"
+    InternalClosure _ x -> "Closure + " ++ simpleShowInternal x
     -- _ -> "Error! Show Not implemented!"
     where
         simpleShowAtom (AtomInteger x) = show x
@@ -143,8 +145,15 @@ evalInternal body = body >>= \x -> case x of
         (:) <$> pure a <*> evalInternal (pure rest)
     (InternalList body : rest) ->
         (:) <$> evalParens (pure body) <*> evalInternal (pure rest)
-    unexpected ->
-        throwE $ EvalError $ "Not implemented " ++ show unexpected ++ " from " ++ show x
+    (InternalClosure closure body : rest) -> do
+        -- TODO: separate!!
+        parentEnv <- lift get
+        lift $ put closure
+        result <- evalOneInternal (pure body)
+        lift $ put parentEnv
+        (:) result <$> evalInternal (pure rest)
+    -- unexpected ->
+    --     throwE $ EvalError $ "Not implemented " ++ show unexpected ++ " from " ++ show x
 
 
 evalOneInternal :: EvaluatorT Internal Internal
@@ -173,7 +182,7 @@ evalParens body = body >>= \case
 evalLambda :: EvaluatorT [Internal] Internal
 evalLambda content = content >>= \case
     InternalAtom (AtomIdent i) : body ->
-        InternalProc <$> lift get <*> pure (MultiArg i) <*> pure body
+        pure $ InternalProc (MultiArg i) body
     InternalList argExprList : body  -> do
         let identList :: Either Error [Ident]
             identList = sequence $ map ident argExprList
@@ -183,7 +192,7 @@ evalLambda content = content >>= \case
         env <- lift get
         case makeArgs <$> identList of
             Left e -> throwE e
-            Right args -> pure $ InternalProc env args body
+            Right args -> pure $ InternalProc args body
     _ ->
         throwE $ EvalError "Improper arguments to lambda"
 
@@ -192,19 +201,13 @@ evalDefine :: EvaluatorT [Internal] Internal
 evalDefine content = content >>= \case
     InternalAtom (AtomIdent i) : value : [] -> do
         evaluated <- evalOneInternal (pure value)
-        let modifyEnv = Map.insert i evaluated
-        let injectSelf (InternalProc procEnv procArgs procBody) =
-                InternalProc (modifyEnv procEnv) procArgs procBody
+        prevEnv <- lift get
+        let newEnv = Map.insert i evaluated prevEnv
+        let injectSelf proc@(InternalProc _ _) =
+                InternalClosure newEnv proc
             injectSelf internal = internal
-        lift $ modify modifyEnv
-        t <- lift get
-        case injectSelf evaluated of
-            (InternalProc procEnv procArgs procBody) ->
-                throwE $ EvalError $ "AAAA: " ++ show procEnv
-            _ ->
-                return $ injectSelf evaluated
-    _ ->
-        throwE $ EvalError "Improper use of define"
+        lift $ put newEnv
+        return $ injectSelf evaluated
 
 
 evalIf :: EvaluatorT [Internal] Internal
@@ -222,10 +225,9 @@ evalIf content = content >>= \case
 
 evalProcCall :: EvaluatorT [Internal] Internal
 evalProcCall content = content >>= \case
-    InternalProc procEnv procArgs procBody : callArgs -> do
+    InternalProc procArgs procBody : callArgs -> do
         args <- either throwE pure (formatArgs procArgs callArgs)
         currentEnv <- lift get
-        lift $ put procEnv
         lift $ modify (injectArgs args)
         result <- evalInternal (pure procBody)
         lift $ put currentEnv
