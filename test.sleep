@@ -11,3 +11,19 @@
          (add x 1))))
 
 (f 1000)
+
+(if #t 'fire 'stop)
+
+(if #f 'dead 'undead)
+
+(define true #t)
+
+(if true 'hello 'bye)
+
+(define rec
+    (lambda (x)
+        (if x
+            'end
+            (rec #t))))
+
+(rec #f)
