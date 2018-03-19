@@ -6,12 +6,24 @@ import qualified Data.Map as Map
 
 
 defaultEnv :: Env
-defaultEnv = --Map.singleton "add" (builtInBinaryProc builtInSum)
+defaultEnv =
     Map.fromList [("add", integerBinOp (+))
                  ,("mul", integerBinOp (*))
                  ,("minus", integerBinOp (-))
                  ,("div", integerBinOp div)
+                 ,("integer?", predicate integerPredicate)
                  ]
+
+
+unaryArgs :: Args ()
+unaryArgs = Arg () NoArg
+
+predicate :: (Internal -> Either Error Internal) -> Internal
+predicate p = InternalBuiltInProc unaryArgs $ Func1 p
+
+integerPredicate :: Internal ->  Either Error Internal
+integerPredicate (InternalAtom (AtomInteger _)) = pure $ InternalAtom (AtomSpecial "#t")
+integerPredicate _ = pure $ InternalAtom (AtomSpecial "#f")
 
 
 binaryArgs :: Args ()
