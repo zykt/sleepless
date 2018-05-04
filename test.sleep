@@ -27,3 +27,11 @@
             (rec #t))))
 
 (rec #f)
+
+(define factorial
+  (lambda (x)
+    (if (= x 1)
+      1
+      (mul x (f (minus x 1))))))
+
+(factorial 2)
