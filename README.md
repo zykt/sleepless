@@ -1,5 +1,8 @@
 # sleepless
 
+WIP language created for learning purposes.
+Development stalled because I'm working on my thesis.
+
 #TODO:
 - [ ] Work on linter warnings
 - [x] Conditionals
